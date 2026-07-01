@@ -301,6 +301,20 @@ if dataset_choice == "Characteristics":
         ]
     })
     st.dataframe(geo_checks, use_container_width=True)
+    
+    st.subheader("Accident map")
+
+    map_df = df[
+        df["lat_float"].between(-90, 90)
+        & df["long_float"].between(-180, 180)
+    ][["lat_float", "long_float", "lum_label", "atm_label", "col_label"]].copy()
+
+    map_df = map_df.rename(columns={
+        "lat_float": "lat",
+        "long_float": "lon"
+    })
+
+    st.map(map_df[["lat", "lon"]])
 
 elif dataset_choice == "Locations":
     df = lieux
