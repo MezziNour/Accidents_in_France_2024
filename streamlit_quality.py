@@ -326,6 +326,7 @@ if dataset_choice == "Characteristics":
 
     st.pydeck_chart(
         pdk.Deck(
+            map_style="light",
             initial_view_state=pdk.ViewState(
                 latitude=48.8566,
                 longitude=2.3522,
