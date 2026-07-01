@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import pydeck as pdk
 
 st.set_page_config(
     page_title="Road Safety Data Quality Dashboard",
@@ -302,8 +303,9 @@ if dataset_choice == "Characteristics":
     })
     st.dataframe(geo_checks, use_container_width=True)
     
-    st.subheader("Accident map")
+    st.subheader("Accident map around Paris")
 
+    # Create the map dataframe
     map_df = df[
         df["lat_float"].between(-90, 90)
         & df["long_float"].between(-180, 180)
@@ -314,7 +316,39 @@ if dataset_choice == "Characteristics":
         "long_float": "lon"
     })
 
-    st.map(map_df[["lat", "lon"]])
+    # Keep only accidents around Paris
+    paris_df = map_df[
+        (map_df["lat"] >= 48.70) &
+        (map_df["lat"] <= 48.95) &
+        (map_df["lon"] >= 2.15) &
+        (map_df["lon"] <= 2.55)
+    ]
+
+    st.pydeck_chart(
+        pdk.Deck(
+            initial_view_state=pdk.ViewState(
+                latitude=48.8566,
+                longitude=2.3522,
+                zoom=10,
+                pitch=0,
+            ),
+            layers=[
+                pdk.Layer(
+                    "ScatterplotLayer",
+                    data=paris_df,
+                    get_position="[lon, lat]",
+                    get_radius=30,
+                    get_fill_color=[220, 30, 30, 160],
+                    pickable=True,
+                )
+            ],
+            tooltip={
+                "text": "Lighting: {lum_label}\nWeather: {atm_label}\nCollision: {col_label}"
+            },
+        )
+    )
+
+    
 
 elif dataset_choice == "Locations":
     df = lieux
