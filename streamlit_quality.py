@@ -53,6 +53,58 @@ def count_invalid_codes(df, columns, invalid_values=["-1", "0"]):
                 })
     return pd.DataFrame(rows)
 
+def is_in_france_or_overseas(lat, lon):
+    """
+    Approximate bounding boxes for France metropolitan area and overseas territories.
+    Returns True if the coordinate is likely located in France or French overseas territories.
+    """
+
+    if pd.isna(lat) or pd.isna(lon):
+        return False
+
+    french_zones = [
+        # Metropolitan France + Corsica
+        (41.0, 51.5, -5.5, 10.0),
+
+        # Guadeloupe
+        (15.8, 16.6, -61.9, -61.0),
+
+        # Martinique
+        (14.3, 14.9, -61.3, -60.7),
+
+        # French Guiana
+        (2.0, 6.0, -54.7, -51.5),
+
+        # Réunion
+        (-21.5, -20.8, 55.1, 55.9),
+
+        # Mayotte
+        (-13.1, -12.5, 44.9, 45.4),
+
+        # Saint-Pierre-et-Miquelon
+        (46.6, 47.2, -56.5, -56.0),
+
+        # Saint-Barthélemy
+        (17.8, 18.0, -63.0, -62.7),
+
+        # Saint-Martin
+        (18.0, 18.2, -63.2, -62.9),
+
+        # Wallis-et-Futuna
+        (-14.5, -13.1, -178.3, -176.0),
+
+        # French Polynesia
+        (-28.0, -7.0, -154.0, -134.0),
+
+        # New Caledonia
+        (-23.5, -18.0, 162.0, 169.5),
+    ]
+
+    for min_lat, max_lat, min_lon, max_lon in french_zones:
+        if min_lat <= lat <= max_lat and min_lon <= lon <= max_lon:
+            return True
+
+    return False
 
 
 # Mappings based on BAAC documentation
@@ -190,6 +242,10 @@ caract["col_label"] = caract["col"].map(col_map).fillna("Other / unmapped")
 
 caract["lat_float"] = to_float_comma(caract["lat"])
 caract["long_float"] = to_float_comma(caract["long"])
+caract["valid_geo_france"] = caract.apply(
+    lambda row: is_in_france_or_overseas(row["lat_float"], row["long_float"]),
+    axis=1
+)
 
 lieux["catr_label"] = lieux["catr"].map(catr_map).fillna("Other / unmapped")
 lieux["surf_label"] = lieux["surf"].map(surf_map).fillna("Other / unmapped")
@@ -228,27 +284,25 @@ st.header("Global KPIs")
 
 col1, col2, col3, col4 = st.columns(4)
 
-total_accidents = caract["Num_Acc"].nunique()
-total_locations = len(lieux)
-total_vehicles = len(vehicules)
-total_users = len(usagers)
+accident_unique_pct = round(caract["Num_Acc"].nunique() / len(caract) * 100, 2)
+location_unique_pct = round(lieux["Num_Acc"].nunique() / len(lieux) * 100, 2)
+vehicle_unique_pct = round(vehicules["id_vehicule"].nunique() / len(vehicules) * 100, 2)
+user_unique_pct = round(usagers["id_usager"].nunique() / len(usagers) * 100, 2)
 
-col1.metric("Accidents", f"{total_accidents:,}")
-col2.metric("Location rows", f"{total_locations:,}")
-col3.metric("Vehicles", f"{total_vehicles:,}")
-col4.metric("Users", f"{total_users:,}")
+col1.metric("Unique accidents (%)", f"{accident_unique_pct}%")
+col2.metric("Unique locations (%)", f"{location_unique_pct}%")
+col3.metric("Unique vehicles (%)", f"{vehicle_unique_pct}%")
+col4.metric("Unique users (%)", f"{user_unique_pct}%")
 
-col5, col6, col7, col8 = st.columns(4)
+col5, col6, col7 = st.columns(3)
 
-invalid_lat = caract["lat_float"].isna().sum()
-invalid_long = caract["long_float"].isna().sum()
+invalid_coordinates = (~caract["valid_geo_france"]).sum()
 unrealistic_vma = (lieux["vma_num"] > 130).sum()
-missing_age = usagers["age"].isna().sum()
+age_above_100 = (usagers["age"] > 100).sum()
 
-col5.metric("Invalid latitude", invalid_lat)
-col6.metric("Invalid longitude", invalid_long)
-col7.metric("Unrealistic speed limits", unrealistic_vma)
-col8.metric("Missing age", missing_age)
+col5.metric("Invalid coordinates", invalid_coordinates)
+col6.metric("Unrealistic speed limits", unrealistic_vma)
+col7.metric("Age above 100", age_above_100)
 
 
 # Dataset-specific section
@@ -259,7 +313,7 @@ if dataset_choice == "Characteristics":
 
     st.subheader("Missing values")
     st.dataframe(missing_report(df), use_container_width=True)
-
+    
     st.subheader("Mapped categorical variables")
 
     c1, c2 = st.columns(2)
@@ -286,29 +340,39 @@ if dataset_choice == "Characteristics":
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Geographic range checks")
+    st.subheader("Geographic validity checks")
+
     geo_checks = pd.DataFrame({
         "Check": [
-            "Latitude < -90 or > 90",
-            "Longitude < -180 or > 180",
             "Missing latitude after conversion",
-            "Missing longitude after conversion"
+            "Missing longitude after conversion",
+            "Coordinates outside France and overseas territories"
         ],
         "Count": [
-            ((df["lat_float"] < -90) | (df["lat_float"] > 90)).sum(),
-            ((df["long_float"] < -180) | (df["long_float"] > 180)).sum(),
             df["lat_float"].isna().sum(),
-            df["long_float"].isna().sum()
+            df["long_float"].isna().sum(),
+            (~df["valid_geo_france"]).sum()
         ]
     })
+
+
     st.dataframe(geo_checks, use_container_width=True)
+    
+    invalid_coordinates_df = df[
+        ~df["valid_geo_france"]
+    ][[
+        "Num_Acc", "lat", "long", "lat_float", "long_float",
+        "lum_label", "atm_label", "col_label"
+    ]]
+
+    st.subheader("Rows with invalid coordinates")
+    st.dataframe(invalid_coordinates_df, use_container_width=True)
     
     st.subheader("Accident map around Paris")
 
     # Create the map dataframe
     map_df = df[
-        df["lat_float"].between(-90, 90)
-        & df["long_float"].between(-180, 180)
+        df["valid_geo_france"]
     ][["lat_float", "long_float", "lum_label", "atm_label", "col_label"]].copy()
 
     map_df = map_df.rename(columns={
@@ -402,6 +466,14 @@ elif dataset_choice == "Locations":
         ]
     })
     st.dataframe(speed_issues, use_container_width=True)
+    invalid_speed_df = df[
+        df["vma_num"] > 130
+    ][[
+        "Num_Acc", "catr", "catr_label", "voie", "vma", "vma_num"
+    ]]
+
+    st.subheader("Rows with speed limit above 130 km/h")
+    st.dataframe(invalid_speed_df, use_container_width=True)
 
     fig = px.histogram(
         df[df["vma_num"].between(0, 130)],
@@ -499,6 +571,17 @@ elif dataset_choice == "Users":
         ]
     })
     st.dataframe(age_checks, use_container_width=True)
+    
+    age_above_100_df = df[
+        df["age"] > 100
+    ][[
+        "Num_Acc", "id_usager", "id_vehicule",
+        "catu_label", "grav_label", "sexe_label",
+        "an_nais", "age"
+    ]]
+
+    st.subheader("Rows with age above 100")
+    st.dataframe(age_above_100_df, use_container_width=True)
 
     fig = px.histogram(
         df[df["age"].between(0, 100)],
